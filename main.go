@@ -12,6 +12,50 @@ import (
 var store = map[string]string{}
 var storeMu sync.RWMutex
 
+func handleCommand(msg string) (response string, shouldClose bool) {
+	if msg == "PING" {
+		return "PONG\n", false
+	}
+	if msg == "QUIT" {
+		return "BYE\n", true
+	}
+	if strings.HasPrefix(msg, "ECHO ") {
+		subStr := strings.TrimPrefix(msg, "ECHO ")
+		return subStr + "\n", false
+	}
+	if strings.HasPrefix(msg, "SET ") {
+		parts := strings.SplitN(msg, " ", 3)
+		if len(parts) != 3 {
+			return "ERR usage: SET key value\n", false
+		}
+		key := parts[1]
+		value := parts[2]
+
+		storeMu.Lock()
+		store[key] = value
+		storeMu.Unlock()
+
+		return "OK\n", false
+	}
+	if strings.HasPrefix(msg, "GET ") {
+		parts := strings.SplitN(msg, " ", 2)
+		if len(parts) != 2 {
+			return "ERR usage: GET key\n", false
+		}
+		key := parts[1]
+
+		storeMu.RLock()
+		value, ok := store[key]
+		storeMu.RUnlock()
+
+		if !ok {
+			return "ERR key not found\n", false
+		}
+		return value + "\n", false
+	}
+	return "ERR unknown command\n", false
+}
+
 func handleConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -31,51 +75,14 @@ func handleConn(conn net.Conn) {
 		msg := strings.TrimSpace(line)
 		fmt.Println("received:", msg)
 
-		if msg == "PING" {
-			_, err = conn.Write([]byte("PONG\n"))
-		} else if msg == "QUIT" {
-			_, err = conn.Write([]byte("BYE\n"))
-			return
-		} else if strings.HasPrefix(msg, "ECHO ") {
-			subStr := strings.TrimPrefix(msg, "ECHO ")
-			_, err = conn.Write([]byte(subStr + "\n"))
-		} else if strings.HasPrefix(msg, "SET ") {
-			parts := strings.SplitN(msg, " ", 3)
-			if len(parts) != 3 {
-				_, err = conn.Write([]byte("ERR usage: SET key value\n"))
-			} else {
-				key := parts[1]
-				value := parts[2]
+		response, shouldClose := handleCommand(msg)
 
-				storeMu.Lock()
-				store[key] = value
-				storeMu.Unlock()
-
-				_, err = conn.Write([]byte("OK\n"))
-			}
-		} else if strings.HasPrefix(msg, "GET ") {
-			parts := strings.SplitN(msg, " ", 2)
-			if len(parts) != 2 {
-				_, err = conn.Write([]byte("ERR usage: GET key\n"))
-			} else {
-				key := parts[1]
-
-				storeMu.RLock()
-				value, ok := store[key]
-				storeMu.RUnlock()
-
-				if !ok {
-					_, err = conn.Write([]byte("ERR key not found\n"))
-				} else {
-					_, err = conn.Write([]byte(value + "\n"))
-				}
-			}
-		} else {
-			_, err = conn.Write([]byte("ERR unknown command\n"))
-		}
-
+		_, err = conn.Write([]byte(response))
 		if err != nil {
 			fmt.Println("write error:", err)
+			return
+		}
+		if shouldClose {
 			return
 		}
 	}
