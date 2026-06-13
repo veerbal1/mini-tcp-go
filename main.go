@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"strings"
@@ -16,18 +17,18 @@ func handleConn(conn net.Conn) {
 
 	fmt.Println("client connected:", conn.RemoteAddr())
 
-	buffer := make([]byte, 1024)
+	reader := bufio.NewReader(conn)
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
-		n, err := conn.Read(buffer)
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Println("client disconnected:", err)
 			return
 		}
 
-		msg := strings.TrimSpace(string(buffer[:n]))
+		msg := strings.TrimSpace(line)
 		fmt.Println("received:", msg)
 
 		if msg == "PING" {
